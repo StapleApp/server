@@ -1,0 +1,19 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "Server for Staple App",
+  "main": "src/server.js",
+  "scripts": {
+    "test": "node src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StapleApp/server.git"
+  },
+  "author": "",
+  "license": "SEE LICENSE IN LICANSE",
+  "bugs": {
+    "url": "https://github.com/StapleApp/server/issues"
+  },
+  "homepage": "https://github.com/StapleApp/server#readme"
+}

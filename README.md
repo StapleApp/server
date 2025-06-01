@@ -1,20 +1,20 @@
 # 📡 Node.js Socket Server
 
-Bu proje, istemcilerle gerçek zamanlı iletişim kurulmasını sağlayan basit bir Node.js tabanlı **Socket Server** uygulamasıdır. Özellikle sohbet uygulamaları, çok oyunculu oyunlar veya anlık bildirim sistemleri gibi senaryolar için uygundur.
+This project is a simple **Socket Server** implemented in Node.js using the built-in `net` module. It allows real-time communication between clients and the server, making it suitable for applications like chat systems, multiplayer games, or notification services.
 
-## 🚀 Özellikler
+## 🚀 Features
 
-- Çoklu istemci bağlantılarını destekler.
-- Kullanıcıların bağlanma, ayrılma ve mesaj gönderme işlemlerini yönetir.
-- Gerçek zamanlı yayın (broadcast) desteği.
-- Basit ve genişletilebilir bir yapıya sahiptir.
+- Handles multiple simultaneous client connections
+- Receives and broadcasts messages
+- Notifies all clients when a new client joins or leaves
+- Lightweight and easy to extend
 
-## 🛠️ Kurulum
+## 🛠️ Installation
 
 ```bash
-# Depoyu klonlayın
-git clone https://github.com/kullaniciadi/socket-server.git
+# Clone the repository
+git clone https://github.com/your-username/socket-server.git
 cd socket-server
 
-# Gerekli bağımlılıkları yükleyin
+# Install dependencies (if any)
 npm install

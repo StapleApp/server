@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "description": "Server for Staple App",
   "main": "src/server.js",
+  "type": "module",
   "scripts": {
-    "test": "node src/server.js",
+    "test": "nodemon test/test.js",
     "start": "nodemon src/server.cjs"
   },
   "repository": {
@@ -18,7 +19,9 @@
   },
   "homepage": "https://github.com/StapleApp/server#readme",
   "dependencies": {
+    "dotenv": "^16.5.0",
     "express": "^4.21.2",
+    "firebase": "^11.9.1",
     "http": "^0.0.1-security",
     "socket.io": "^4.8.1"
   },

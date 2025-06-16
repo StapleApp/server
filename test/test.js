@@ -1,15 +1,12 @@
-import { collection, addDoc } from 'firebase/firestore';
-import db from '../src/config/firebase-config.js';
+import { getGroupById, createGroup } from '../src/services/groupService.js';
 
-async function addData() {
-    try {
-        const docRef = await addDoc(collection(db, "Groups"), {
-            groupName: "Test Grubu"
-        });
-        console.log("Belge ID'si:", docRef.id);
-    } catch (e) {
-        console.error("Hata:", e);
-    }
-}
-
-addData();
+console.log(createGroup({
+    groupName: 'Test Group',
+    users: [
+        { userID: 'user1'},
+        { userID: 'user2'}
+    ],
+    messages: [
+        { senderID: 'user1', sendDate: new Date(), type: 'edited', message: 'Hello from user1' }
+    ]
+}));

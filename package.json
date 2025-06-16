@@ -4,7 +4,8 @@
   "description": "Server for Staple App",
   "main": "src/server.js",
   "scripts": {
-    "test": "node src/server.js"
+    "test": "node src/server.js",
+    "start": "nodemon src/server.cjs"
   },
   "repository": {
     "type": "git",
@@ -20,5 +21,8 @@
     "express": "^4.21.2",
     "http": "^0.0.1-security",
     "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
   }
 }

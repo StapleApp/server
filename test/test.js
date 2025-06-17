@@ -1,12 +1,7 @@
 import { getGroupById, createGroup } from '../src/services/groupService.js';
 
-console.log(createGroup({
-    groupName: 'Test Group',
-    users: [
-        { userID: 'user1'},
-        { userID: 'user2'}
-    ],
-    messages: [
-        { senderID: 'user1', sendDate: new Date(), type: 'edited', message: 'Hello from user1' }
-    ]
-}));
+
+// const a = await createGroup("Test group", ["user1", "user2", "user3"]);
+const b = await getGroupById('ojN1U6abfFpp83DEoBoc');
+
+console.log(b);

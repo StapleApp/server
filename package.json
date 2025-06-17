@@ -5,7 +5,7 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "test": "nodemon test/test.js",
+    "test": "node test/test.js",
     "start": "nodemon src/server.cjs"
   },
   "repository": {

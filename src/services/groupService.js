@@ -54,6 +54,17 @@ export async function createGroup(groupName, users) {
             messages: []
         });
 
+        users.forEach(async (userId) => {
+            const userDocRef = doc(db, 'Users', userId);
+            const userDoc = await getDoc(userDocRef);
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                const groups = userData.groups || [];
+                groups.push(docRef.id);
+                await userDocRef.update({ groups });
+            }
+        });
+
         return docRef.id;
     } catch (error) {
         console.error('Error creating group:', error);

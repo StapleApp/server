@@ -37,7 +37,64 @@ io.on('connection', (socket) => {
     console.log('Bir kullanıcı bağlandı:', socket.id);
     userCount++;
     io.emit('userCount', userCount);
-    
+
+    // ==================== WebRTC SESLİ KANAL SIGNALING ====================
+    // Sesli kanala katıl: odadaki mevcut peer'ları yeni gelene bildir,
+    // diğerlerine de yeni peer'ı haber ver.
+    socket.on('voice:join', ({ roomId, userId, nickName }) => {
+        socket.data.voiceRoom = roomId;
+        socket.data.userId = userId;
+        socket.data.nickName = nickName;
+        socket.join(roomId);
+
+        const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
+            .filter((id) => id !== socket.id);
+
+        const peers = clients.map((id) => {
+            const s = io.sockets.sockets.get(id);
+            return { socketId: id, userId: s?.data?.userId, nickName: s?.data?.nickName };
+        });
+
+        // Yeni gelene mevcut peer listesini gönder (o initiator olacak)
+        socket.emit('voice:peers', peers);
+        // Diğerlerine yeni katılanı bildir
+        socket.to(roomId).emit('voice:peer-joined', {
+            socketId: socket.id,
+            userId,
+            nickName,
+        });
+        console.log(`voice:join ${nickName} -> ${roomId} (${peers.length} peer)`);
+    });
+
+    // Signaling mesajlarını hedef peer'a ilet
+    socket.on('voice:offer', ({ to, sdp }) => {
+        io.to(to).emit('voice:offer', {
+            from: socket.id,
+            sdp,
+            userId: socket.data.userId,
+            nickName: socket.data.nickName,
+        });
+    });
+
+    socket.on('voice:answer', ({ to, sdp }) => {
+        io.to(to).emit('voice:answer', { from: socket.id, sdp });
+    });
+
+    socket.on('voice:ice-candidate', ({ to, candidate }) => {
+        io.to(to).emit('voice:ice-candidate', { from: socket.id, candidate });
+    });
+
+    // Sesli kanaldan ayrıl
+    socket.on('voice:leave', () => {
+        const roomId = socket.data.voiceRoom;
+        if (roomId) {
+            socket.to(roomId).emit('voice:peer-left', { socketId: socket.id });
+            socket.leave(roomId);
+            socket.data.voiceRoom = null;
+        }
+    });
+    // =====================================================================
+
     // Kullanıcı odaya katılıyor
     socket.on('joinRoom', ({ roomId, userId }) => {
         console.log(`Kullanıcı ${socket.id} (${userId}) odaya katıldı: ${roomId}`);
@@ -105,7 +162,12 @@ io.on('connection', (socket) => {
         console.log('Bir kullanıcı ayrıldı:', socket.id);
         userCount--;
         io.emit('userCount', userCount);
-        
+
+        // Sesli kanaldaki peer'lara ayrıldığını bildir
+        if (socket.data.voiceRoom) {
+            socket.to(socket.data.voiceRoom).emit('voice:peer-left', { socketId: socket.id });
+        }
+
         // Kullanıcıyı tüm odalardan çıkar
         if (activeUsers.has(socket.id)) {
             const userInfo = activeUsers.get(socket.id);

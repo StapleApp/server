@@ -5,13 +5,20 @@ const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-    path: "/socket.io", 
-    cors: {
-      origin: [
+
+// Allowed origins can be overridden with the ALLOWED_ORIGINS env var
+// (comma-separated) so you don't have to redeploy to change them.
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    : [
         "https://web.stapleapp.com",
         "https://socket.stapleapp.com"
-      ],
+      ];
+
+const io = new Server(server, {
+    path: "/socket.io",
+    cors: {
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
       credentials: true
     },
@@ -152,9 +159,11 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('İşlenmeyen reddetme:', reason);
 });
 
-// PORT 3000 üzerinden dinliyor
-server.listen(3000, '0.0.0.0', () => {
-    console.log('Sunucu 3000 portunda çalışıyor ve tüm ağ arayüzlerinden erişilebilir');
+// Hosting platforms (Render, Fly, etc.) inject the port via process.env.PORT.
+// Fall back to 3000 for local development.
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`Sunucu ${PORT} portunda çalışıyor ve tüm ağ arayüzlerinden erişilebilir`);
 });
 
 app.get('/health', (req, res) => {

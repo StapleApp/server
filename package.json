@@ -6,7 +6,11 @@
   "type": "module",
   "scripts": {
     "test": "node test/test.js",
-    "start": "nodemon src/server.cjs"
+    "start": "node src/server.cjs",
+    "dev": "nodemon src/server.cjs"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "repository": {
     "type": "git",

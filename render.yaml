@@ -1,0 +1,16 @@
+# Render blueprint for the Staple Socket.io server.
+# In Render: New + → Blueprint → pick this repo, and it reads this file.
+services:
+  - type: web
+    name: staple-socket-server
+    runtime: node
+    plan: free
+    region: frankfurt          # closest Render region to Turkey; change if you prefer
+    buildCommand: npm install
+    startCommand: npm start     # runs "node src/server.cjs"
+    healthCheckPath: /health
+    envVars:
+      - key: ALLOWED_ORIGINS
+        # Comma-separated list of sites allowed to connect. Add your Tauri/dev
+        # origins here later if needed.
+        value: https://web.stapleapp.com,https://socket.stapleapp.com

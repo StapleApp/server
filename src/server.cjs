@@ -44,7 +44,12 @@ io.on('connection', (socket) => {
 
         const peers = clients.map((id) => {
             const s = io.sockets.sockets.get(id);
-            return { socketId: id, userId: s?.data?.userId, nickName: s?.data?.nickName };
+            return {
+                socketId: id,
+                userId: s?.data?.userId,
+                nickName: s?.data?.nickName,
+                sharing: !!s?.data?.sharing,
+            };
         });
 
         // Yeni gelene mevcut peer listesini gönder (o initiator olacak)
@@ -80,10 +85,56 @@ io.on('connection', (socket) => {
     socket.on('voice:leave', () => {
         const roomId = socket.data.voiceRoom;
         if (roomId) {
+            if (socket.data.sharing) {
+                socket.to(roomId).emit('screen:stopped', { socketId: socket.id });
+                socket.data.sharing = false;
+            }
             socket.to(roomId).emit('voice:peer-left', { socketId: socket.id });
             socket.leave(roomId);
             socket.data.voiceRoom = null;
         }
+    });
+
+    // ==================== EKRAN PAYLAŞIMI SIGNALING ====================
+    // Paylaşım başlat/durdur — odaya duyurulur
+    socket.on('screen:start', () => {
+        socket.data.sharing = true;
+        if (socket.data.voiceRoom) {
+            socket.to(socket.data.voiceRoom).emit('screen:started', {
+                socketId: socket.id,
+                userId: socket.data.userId,
+                nickName: socket.data.nickName,
+            });
+        }
+    });
+
+    socket.on('screen:stop', () => {
+        socket.data.sharing = false;
+        if (socket.data.voiceRoom) {
+            socket.to(socket.data.voiceRoom).emit('screen:stopped', { socketId: socket.id });
+        }
+    });
+
+    // İzleme talebi/iptali — paylaşan kişiye iletilir
+    socket.on('screen:watch', ({ to }) => {
+        io.to(to).emit('screen:watch-request', { from: socket.id });
+    });
+
+    socket.on('screen:unwatch', ({ to }) => {
+        io.to(to).emit('screen:unwatch-request', { from: socket.id });
+    });
+
+    // Ekran paylaşımı için ayrı WebRTC signaling (ses mesh'inden bağımsız)
+    socket.on('screen:offer', ({ to, sdp }) => {
+        io.to(to).emit('screen:offer', { from: socket.id, sdp });
+    });
+
+    socket.on('screen:answer', ({ to, sdp }) => {
+        io.to(to).emit('screen:answer', { from: socket.id, sdp });
+    });
+
+    socket.on('screen:ice-candidate', ({ to, candidate }) => {
+        io.to(to).emit('screen:ice-candidate', { from: socket.id, candidate });
     });
     // =====================================================================
 
@@ -93,6 +144,9 @@ io.on('connection', (socket) => {
 
         // Sesli kanaldaki peer'lara ayrıldığını bildir
         if (socket.data.voiceRoom) {
+            if (socket.data.sharing) {
+                socket.to(socket.data.voiceRoom).emit('screen:stopped', { socketId: socket.id });
+            }
             socket.to(socket.data.voiceRoom).emit('voice:peer-left', { socketId: socket.id });
         }
     });

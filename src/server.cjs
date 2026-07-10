@@ -49,6 +49,7 @@ function buildVoiceState(serverId) {
                 userId: s.data.userId,
                 nickName: s.data.nickName,
                 sharing: !!s.data.sharing,
+                muted: !!s.data.muted,
             });
         }
         if (users.length) state[channelId] = users;
@@ -85,6 +86,7 @@ io.on('connection', (socket) => {
         socket.data.voiceRoom = roomId;
         socket.data.userId = userId;
         socket.data.nickName = nickName;
+        socket.data.muted = false;
         socket.join(roomId);
 
         const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
@@ -97,6 +99,7 @@ io.on('connection', (socket) => {
                 userId: s?.data?.userId,
                 nickName: s?.data?.nickName,
                 sharing: !!s?.data?.sharing,
+                muted: !!s?.data?.muted,
             };
         });
 
@@ -128,6 +131,20 @@ io.on('connection', (socket) => {
 
     socket.on('voice:ice-candidate', ({ to, candidate }) => {
         io.to(to).emit('voice:ice-candidate', { from: socket.id, candidate });
+    });
+
+    // Sustur/aç durumu — hem mesh'teki peer'lara (katılımcı listesi) hem
+    // presence izleyicilerine (server sidebar) yayılır.
+    socket.on('voice:mute', ({ muted }) => {
+        socket.data.muted = !!muted;
+        const roomId = socket.data.voiceRoom;
+        if (roomId) {
+            socket.to(roomId).emit('voice:peer-mute', {
+                socketId: socket.id,
+                muted: !!muted,
+            });
+            broadcastVoiceState(serverIdOf(roomId));
+        }
     });
 
     // Sesli kanaldan ayrıl

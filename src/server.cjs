@@ -27,8 +27,56 @@ const io = new Server(server, {
     transports: ['websocket', 'polling']
 });
 
+// ==================== SESLİ KANAL DOLULUK (PRESENCE) ====================
+// Sesli oda id'si `${serverId}:${channelId}`. Bir sunucunun tüm sesli
+// kanallarındaki kullanıcıları, o sunucuyu izleyen (presence room) herkese
+// yayınlarız — böylece kanala girmeden kimin içeride olduğu görülebilir.
+const presenceRoom = (serverId) => `presence:${serverId}`;
+const serverIdOf = (roomId) => (roomId ? roomId.split(':')[0] : null);
+
+function buildVoiceState(serverId) {
+    const state = {};
+    const prefix = `${serverId}:`;
+    for (const [roomId, members] of io.sockets.adapter.rooms) {
+        if (!roomId.startsWith(prefix)) continue;
+        const channelId = roomId.slice(prefix.length);
+        const users = [];
+        for (const sid of members) {
+            const s = io.sockets.sockets.get(sid);
+            if (!s || s.data.voiceRoom !== roomId) continue;
+            users.push({
+                socketId: sid,
+                userId: s.data.userId,
+                nickName: s.data.nickName,
+                sharing: !!s.data.sharing,
+            });
+        }
+        if (users.length) state[channelId] = users;
+    }
+    return state;
+}
+
+function broadcastVoiceState(serverId) {
+    if (!serverId) return;
+    io.to(presenceRoom(serverId)).emit('voice:state', {
+        serverId,
+        state: buildVoiceState(serverId),
+    });
+}
+
 io.on('connection', (socket) => {
     console.log('Bir kullanıcı bağlandı:', socket.id);
+
+    // Bir sunucunun sesli kanal doluluğunu izlemeye başla/bırak
+    socket.on('voice:watch', ({ serverId }) => {
+        if (!serverId) return;
+        socket.join(presenceRoom(serverId));
+        socket.emit('voice:state', { serverId, state: buildVoiceState(serverId) });
+    });
+
+    socket.on('voice:unwatch', ({ serverId }) => {
+        if (serverId) socket.leave(presenceRoom(serverId));
+    });
 
     // ==================== WebRTC SESLİ KANAL SIGNALING ====================
     // Sesli kanala katıl: odadaki mevcut peer'ları yeni gelene bildir,
@@ -60,6 +108,7 @@ io.on('connection', (socket) => {
             userId,
             nickName,
         });
+        broadcastVoiceState(serverIdOf(roomId));
         console.log(`voice:join ${nickName} -> ${roomId} (${peers.length} peer)`);
     });
 
@@ -92,6 +141,7 @@ io.on('connection', (socket) => {
             socket.to(roomId).emit('voice:peer-left', { socketId: socket.id });
             socket.leave(roomId);
             socket.data.voiceRoom = null;
+            broadcastVoiceState(serverIdOf(roomId));
         }
     });
 
@@ -121,6 +171,7 @@ io.on('connection', (socket) => {
                 userId: socket.data.userId,
                 nickName: socket.data.nickName,
             });
+            broadcastVoiceState(serverIdOf(socket.data.voiceRoom));
         }
     });
 
@@ -128,6 +179,7 @@ io.on('connection', (socket) => {
         socket.data.sharing = false;
         if (socket.data.voiceRoom) {
             socket.to(socket.data.voiceRoom).emit('screen:stopped', { socketId: socket.id });
+            broadcastVoiceState(serverIdOf(socket.data.voiceRoom));
         }
     });
 
@@ -164,6 +216,8 @@ io.on('connection', (socket) => {
                 socket.to(socket.data.voiceRoom).emit('screen:stopped', { socketId: socket.id });
             }
             socket.to(socket.data.voiceRoom).emit('voice:peer-left', { socketId: socket.id });
+            // 'disconnect' anında socket odalardan çıkmış olur → state doğru hesaplanır
+            broadcastVoiceState(serverIdOf(socket.data.voiceRoom));
         }
     });
 });

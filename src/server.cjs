@@ -95,6 +95,22 @@ io.on('connection', (socket) => {
         }
     });
 
+    // ==================== YAZI KANALI "YAZIYOR..." ====================
+    // Sohbet odasına katıl/ayrıl (ses mesh'inden bağımsız, ayrı room)
+    socket.on('chat:join', ({ channelId }) => {
+        if (channelId) socket.join(`chat:${channelId}`);
+    });
+
+    socket.on('chat:leave', ({ channelId }) => {
+        if (channelId) socket.leave(`chat:${channelId}`);
+    });
+
+    // "yazıyor" durumunu odadaki diğerlerine ilet
+    socket.on('chat:typing', ({ channelId, userId, nickName, isTyping }) => {
+        if (!channelId) return;
+        socket.to(`chat:${channelId}`).emit('chat:typing', { userId, nickName, isTyping });
+    });
+
     // ==================== EKRAN PAYLAŞIMI SIGNALING ====================
     // Paylaşım başlat/durdur — odaya duyurulur
     socket.on('screen:start', () => {

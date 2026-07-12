@@ -65,8 +65,56 @@ function broadcastVoiceState(serverId) {
     });
 }
 
+// ==================== KULLANICI ÇEVRİMİÇİ DURUMU (GLOBAL PRESENCE) ====================
+// Uygulama açıkken her istemci socket bağlantısını açık tutar ve kimliğini
+// bildirir. Bir kullanıcının HİÇ socket'i kalmayınca çevrimdışı sayılır.
+// userId -> Set<socketId>
+const onlineUsers = new Map();
+const USERS_ROOM = 'presence:users'; // güncellemeleri dinleyen istemciler
+
+function addOnline(userId, socketId) {
+    let set = onlineUsers.get(userId);
+    const wasOffline = !set || set.size === 0;
+    if (!set) { set = new Set(); onlineUsers.set(userId, set); }
+    set.add(socketId);
+    return wasOffline; // ilk bağlantıysa true → "çevrimiçi oldu" yayını
+}
+
+function removeOnline(userId, socketId) {
+    const set = onlineUsers.get(userId);
+    if (!set) return false;
+    set.delete(socketId);
+    if (set.size === 0) { onlineUsers.delete(userId); return true; } // son bağlantı koptu
+    return false;
+}
+
 io.on('connection', (socket) => {
     console.log('Bir kullanıcı bağlandı:', socket.id);
+
+    // İstemci kimliğini bildirir → çevrimiçi kaydı + anlık liste
+    socket.on('presence:online', ({ userId }) => {
+        if (!userId) return;
+        socket.data.presenceUserId = userId;
+        socket.join(USERS_ROOM);
+        const cameOnline = addOnline(userId, socket.id);
+        // Yeni bağlanana tam liste
+        socket.emit('presence:snapshot', { userIds: Array.from(onlineUsers.keys()) });
+        // Diğerlerine yalnızca değişiklik
+        if (cameOnline) {
+            socket.to(USERS_ROOM).emit('presence:diff', { userId, online: true });
+        }
+    });
+
+    // Çıkış yaparken (logout) bağlantıyı kapatmadan çevrimdışı ol
+    socket.on('presence:offline', () => {
+        const userId = socket.data.presenceUserId;
+        if (!userId) return;
+        socket.data.presenceUserId = null;
+        socket.leave(USERS_ROOM);
+        if (removeOnline(userId, socket.id)) {
+            io.to(USERS_ROOM).emit('presence:diff', { userId, online: false });
+        }
+    });
 
     // Bir sunucunun sesli kanal doluluğunu izlemeye başla/bırak
     socket.on('voice:watch', ({ serverId }) => {
@@ -226,6 +274,12 @@ io.on('connection', (socket) => {
     // Kullanıcı bağlantısı kesildiğinde
     socket.on('disconnect', () => {
         console.log('Bir kullanıcı ayrıldı:', socket.id);
+
+        // Global presence: bu kullanıcının son socket'iyse çevrimdışı yayınla
+        const presenceUserId = socket.data.presenceUserId;
+        if (presenceUserId && removeOnline(presenceUserId, socket.id)) {
+            io.to(USERS_ROOM).emit('presence:diff', { userId: presenceUserId, online: false });
+        }
 
         // Sesli kanaldaki peer'lara ayrıldığını bildir
         if (socket.data.voiceRoom) {

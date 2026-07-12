@@ -70,7 +70,16 @@ function broadcastVoiceState(serverId) {
 // bildirir. Bir kullanıcının HİÇ socket'i kalmayınca çevrimdışı sayılır.
 // userId -> Set<socketId>
 const onlineUsers = new Map();
+// userId -> durum tercihi ("online" | "sleeping" | "dnd" | "offline"/görünmez)
+const userStatus = new Map();
 const USERS_ROOM = 'presence:users'; // güncellemeleri dinleyen istemciler
+
+function presenceSnapshot() {
+    return Array.from(onlineUsers.keys()).map((userId) => ({
+        userId,
+        status: userStatus.get(userId) || 'online',
+    }));
+}
 
 function addOnline(userId, socketId) {
     let set = onlineUsers.get(userId);
@@ -91,18 +100,31 @@ function removeOnline(userId, socketId) {
 io.on('connection', (socket) => {
     console.log('Bir kullanıcı bağlandı:', socket.id);
 
-    // İstemci kimliğini bildirir → çevrimiçi kaydı + anlık liste
-    socket.on('presence:online', ({ userId }) => {
+    // İstemci kimliğini (ve durum tercihini) bildirir → çevrimiçi kaydı + anlık liste
+    socket.on('presence:online', ({ userId, status }) => {
         if (!userId) return;
         socket.data.presenceUserId = userId;
         socket.join(USERS_ROOM);
+        if (status) userStatus.set(userId, status);
         const cameOnline = addOnline(userId, socket.id);
-        // Yeni bağlanana tam liste
-        socket.emit('presence:snapshot', { userIds: Array.from(onlineUsers.keys()) });
+        // Yeni bağlanana tam liste (durum tercihleriyle)
+        socket.emit('presence:snapshot', { users: presenceSnapshot() });
         // Diğerlerine yalnızca değişiklik
         if (cameOnline) {
-            socket.to(USERS_ROOM).emit('presence:diff', { userId, online: true });
+            socket.to(USERS_ROOM).emit('presence:diff', {
+                userId,
+                online: true,
+                status: userStatus.get(userId) || 'online',
+            });
         }
+    });
+
+    // Durum tercihi değişti (online/sleeping/dnd/offline-görünmez) → herkese yay
+    socket.on('presence:status', ({ status }) => {
+        const userId = socket.data.presenceUserId;
+        if (!userId || !status) return;
+        userStatus.set(userId, status);
+        io.to(USERS_ROOM).emit('presence:diff', { userId, online: true, status });
     });
 
     // Çıkış yaparken (logout) bağlantıyı kapatmadan çevrimdışı ol
@@ -112,6 +134,7 @@ io.on('connection', (socket) => {
         socket.data.presenceUserId = null;
         socket.leave(USERS_ROOM);
         if (removeOnline(userId, socket.id)) {
+            userStatus.delete(userId);
             io.to(USERS_ROOM).emit('presence:diff', { userId, online: false });
         }
     });
@@ -278,6 +301,7 @@ io.on('connection', (socket) => {
         // Global presence: bu kullanıcının son socket'iyse çevrimdışı yayınla
         const presenceUserId = socket.data.presenceUserId;
         if (presenceUserId && removeOnline(presenceUserId, socket.id)) {
+            userStatus.delete(presenceUserId);
             io.to(USERS_ROOM).emit('presence:diff', { userId: presenceUserId, online: false });
         }
 

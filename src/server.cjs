@@ -50,6 +50,7 @@ function buildVoiceState(serverId) {
                 nickName: s.data.nickName,
                 sharing: !!s.data.sharing,
                 muted: !!s.data.muted,
+                deafened: !!s.data.deafened,
             });
         }
         if (users.length) state[channelId] = users;
@@ -213,6 +214,7 @@ io.on('connection', (socket) => {
         socket.data.userId = userId;
         socket.data.nickName = nickName;
         socket.data.muted = false;
+        socket.data.deafened = false;
         socket.join(roomId);
 
         const clients = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
@@ -226,6 +228,7 @@ io.on('connection', (socket) => {
                 nickName: s?.data?.nickName,
                 sharing: !!s?.data?.sharing,
                 muted: !!s?.data?.muted,
+                deafened: !!s?.data?.deafened,
             };
         });
 
@@ -270,6 +273,19 @@ io.on('connection', (socket) => {
             socket.to(roomId).emit('voice:peer-mute', {
                 socketId: socket.id,
                 muted: !!muted,
+            });
+            broadcastVoiceState(serverIdOf(roomId));
+        }
+    });
+
+    // Sağırlaştır/aç durumu — mesh peer'larına + presence izleyicilerine yayılır.
+    socket.on('voice:deafen', ({ deafened }) => {
+        socket.data.deafened = !!deafened;
+        const roomId = socket.data.voiceRoom;
+        if (roomId) {
+            socket.to(roomId).emit('voice:peer-deafen', {
+                socketId: socket.id,
+                deafened: !!deafened,
             });
             broadcastVoiceState(serverIdOf(roomId));
         }

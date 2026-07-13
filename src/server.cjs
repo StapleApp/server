@@ -97,6 +97,61 @@ function removeOnline(userId, socketId) {
     return false;
 }
 
+// ==================== SENKRON YOUTUBE DİNLEME PARTİSİ ====================
+// Müzik durumu, sesli oda (`${serverId}:${channelId}`) ile AYNI socket odasına
+// bağlıdır → yalnızca o kanaldaki kişiler görür/kontrol eder. Sunucu otoriter
+// state tutar. Saat kayması (clock skew) olmasın diye yayında ANLIK pozisyon +
+// serverTs gönderilir; istemci yalnızca kendi yerel geçen süresiyle ekstrapole
+// eder (getInviteInfo tarzı DEFINER değil; tamamen bellek içi, oda boşalınca silinir).
+const musicRooms = new Map(); // roomId -> { current, queue[], playing, positionSec, updatedAt }
+
+function freshMusic() {
+    return { current: null, queue: [], playing: false, positionSec: 0, updatedAt: Date.now() };
+}
+function ensureMusic(roomId) {
+    let m = musicRooms.get(roomId);
+    if (!m) { m = freshMusic(); musicRooms.set(roomId, m); }
+    return m;
+}
+function livePosition(m) {
+    let pos = m.positionSec;
+    if (m.playing && m.current) pos += (Date.now() - m.updatedAt) / 1000;
+    return Math.max(0, pos);
+}
+function musicSnapshot(roomId) {
+    const m = musicRooms.get(roomId) || freshMusic();
+    return {
+        current: m.current,
+        queue: m.queue,
+        playing: m.playing,
+        positionSec: livePosition(m),
+        serverTs: Date.now(),
+    };
+}
+function broadcastMusic(roomId) {
+    if (!roomId) return;
+    io.to(roomId).emit('music:state', musicSnapshot(roomId));
+}
+function advanceMusic(m) {
+    const nextItem = m.queue.shift() || null;
+    m.current = nextItem;
+    m.playing = !!nextItem;
+    m.positionSec = 0;
+    m.updatedAt = Date.now();
+}
+function voiceRoomHasMembers(roomId) {
+    const set = io.sockets.adapter.rooms.get(roomId);
+    if (!set) return false;
+    for (const sid of set) {
+        const s = io.sockets.sockets.get(sid);
+        if (s && s.data.voiceRoom === roomId) return true;
+    }
+    return false;
+}
+function cleanupMusicIfEmpty(roomId) {
+    if (roomId && !voiceRoomHasMembers(roomId)) musicRooms.delete(roomId);
+}
+
 io.on('connection', (socket) => {
     console.log('Bir kullanıcı bağlandı:', socket.id);
 
@@ -183,6 +238,8 @@ io.on('connection', (socket) => {
             nickName,
         });
         broadcastVoiceState(serverIdOf(roomId));
+        // Yeni gelene mevcut müzik partisi durumunu ilet
+        if (musicRooms.has(roomId)) socket.emit('music:state', musicSnapshot(roomId));
         console.log(`voice:join ${nickName} -> ${roomId} (${peers.length} peer)`);
     });
 
@@ -230,6 +287,7 @@ io.on('connection', (socket) => {
             socket.leave(roomId);
             socket.data.voiceRoom = null;
             broadcastVoiceState(serverIdOf(roomId));
+            cleanupMusicIfEmpty(roomId);
         }
     });
 
@@ -294,6 +352,97 @@ io.on('connection', (socket) => {
     });
     // =====================================================================
 
+    // ==================== YOUTUBE DİNLEME PARTİSİ ====================
+    // Tüm olaylar socket.data.voiceRoom üzerinden çalışır → yalnızca o sesli
+    // kanaldaki kişiler kontrol edebilir/görebilir.
+    socket.on('music:request', () => {
+        const roomId = socket.data.voiceRoom;
+        if (roomId) socket.emit('music:state', musicSnapshot(roomId));
+    });
+
+    // Kuyruğa ekle; boşsa hemen çalmaya başla.
+    socket.on('music:enqueue', ({ video }) => {
+        const roomId = socket.data.voiceRoom;
+        if (!roomId || !video || !video.id) return;
+        const m = ensureMusic(roomId);
+        const item = {
+            id: String(video.id).slice(0, 20),
+            title: video.title ? String(video.title).slice(0, 200) : '',
+            addedBy: socket.data.nickName || '',
+            addedById: socket.data.userId || null,
+        };
+        if (!m.current) {
+            m.current = item; m.playing = true; m.positionSec = 0; m.updatedAt = Date.now();
+        } else if (m.queue.length < 100) {
+            m.queue.push(item);
+        }
+        broadcastMusic(roomId);
+    });
+
+    // Oynat / duraklat / ileri / sar / temizle
+    socket.on('music:control', ({ action, positionSec }) => {
+        const roomId = socket.data.voiceRoom;
+        if (!roomId) return;
+        const m = ensureMusic(roomId);
+        switch (action) {
+            case 'play':
+                if (m.current) { m.playing = true; m.updatedAt = Date.now(); }
+                break;
+            case 'pause':
+                m.positionSec = livePosition(m); m.playing = false; m.updatedAt = Date.now();
+                break;
+            case 'seek':
+                m.positionSec = Math.max(0, Number(positionSec) || 0); m.updatedAt = Date.now();
+                break;
+            case 'next':
+                advanceMusic(m);
+                break;
+            case 'clear':
+                m.current = null; m.queue = []; m.playing = false; m.positionSec = 0; m.updatedAt = Date.now();
+                break;
+            default:
+                return;
+        }
+        broadcastMusic(roomId);
+    });
+
+    // Kuyruktan sıradaki bir öğeyi kaldır
+    socket.on('music:remove', ({ index }) => {
+        const roomId = socket.data.voiceRoom;
+        if (!roomId) return;
+        const m = musicRooms.get(roomId);
+        if (!m) return;
+        if (Number.isInteger(index) && index >= 0 && index < m.queue.length) {
+            m.queue.splice(index, 1);
+            broadcastMusic(roomId);
+        }
+    });
+
+    // Çözülen video başlığını yay (istemci player'dan okur; API anahtarı gerekmez)
+    socket.on('music:title', ({ id, title }) => {
+        const roomId = socket.data.voiceRoom;
+        if (!roomId) return;
+        const m = musicRooms.get(roomId);
+        if (!m || !m.current) return;
+        if (m.current.id === id && !m.current.title && title) {
+            m.current.title = String(title).slice(0, 200);
+            broadcastMusic(roomId);
+        }
+    });
+
+    // Video bitince sıradakine geç. Çok istemci aynı anda bildirebilir →
+    // yalnızca hâlâ çalan video için ilerlet (dedupe).
+    socket.on('music:ended', ({ endedId }) => {
+        const roomId = socket.data.voiceRoom;
+        if (!roomId) return;
+        const m = musicRooms.get(roomId);
+        if (!m || !m.current) return;
+        if (endedId && endedId !== m.current.id) return;
+        advanceMusic(m);
+        broadcastMusic(roomId);
+    });
+    // =====================================================================
+
     // Kullanıcı bağlantısı kesildiğinde
     socket.on('disconnect', () => {
         console.log('Bir kullanıcı ayrıldı:', socket.id);
@@ -313,6 +462,7 @@ io.on('connection', (socket) => {
             socket.to(socket.data.voiceRoom).emit('voice:peer-left', { socketId: socket.id });
             // 'disconnect' anında socket odalardan çıkmış olur → state doğru hesaplanır
             broadcastVoiceState(serverIdOf(socket.data.voiceRoom));
+            cleanupMusicIfEmpty(socket.data.voiceRoom);
         }
     });
 });
